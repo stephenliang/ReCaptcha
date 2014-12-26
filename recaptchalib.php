@@ -35,9 +35,9 @@
 /**
  * The reCAPTCHA server URL's
  */
-define("RECAPTCHA_API_SERVER", "http://www.google.com/recaptcha/api");
-define("RECAPTCHA_API_SECURE_SERVER", "https://www.google.com/recaptcha/api");
-define("RECAPTCHA_VERIFY_SERVER", "www.google.com");
+define("RECAPTCHA_API_SERVER", "http://www.google.com/recaptcha/api.js");
+define("RECAPTCHA_API_SECURE_SERVER", "https://www.google.com/recaptcha/api.js");
+define("RECAPTCHA_VERIFY_SERVER", "https://www.google.com/recaptcha/api/siteverify?");
 
 /**
  * Encodes the given data into a query string format
@@ -57,38 +57,18 @@ function _recaptcha_qsencode ($data) {
 
 
 /**
- * Submits an HTTP POST to a reCAPTCHA server
+ * Submits an HTTP GET to a reCAPTCHA server
  * @param string $host
  * @param string $path
  * @param array $data
  * @param int port
  * @return array response
  */
-function _recaptcha_http_post($host, $path, $data, $port = 80) {
+function _recaptcha_http_get($path, $data) {
 
         $req = _recaptcha_qsencode ($data);
-
-        $http_request  = "POST $path HTTP/1.0\r\n";
-        $http_request .= "Host: $host\r\n";
-        $http_request .= "Content-Type: application/x-www-form-urlencoded;\r\n";
-        $http_request .= "Content-Length: " . strlen($req) . "\r\n";
-        $http_request .= "User-Agent: reCAPTCHA/PHP\r\n";
-        $http_request .= "\r\n";
-        $http_request .= $req;
-
-        $response = '';
-        if( false == ( $fs = @fsockopen($host, $port, $errno, $errstr, 10) ) ) {
-                die ('Could not open socket');
-        }
-
-        fwrite($fs, $http_request);
-
-        while ( !feof($fs) )
-                $response .= fgets($fs, 1160); // One TCP-IP packet
-        fclose($fs);
-        $response = explode("\r\n\r\n", $response, 2);
-
-        return $response;
+	
+	return file_get_contents($path . $req);
 }
 
 
@@ -106,7 +86,7 @@ function _recaptcha_http_post($host, $path, $data, $port = 80) {
 function recaptcha_get_html ($pubkey, $error = null, $use_ssl = false)
 {
 	if ($pubkey == null || $pubkey == '') {
-		die ("To use reCAPTCHA you must get an API key from <a href='https://www.google.com/recaptcha/admin/create'>https://www.google.com/recaptcha/admin/create</a>");
+		die ("To use reCAPTCHA you must get an API key from <a href='https://www.google.com/recaptcha/admin'>https://www.google.com/recaptcha/admin</a>");
 	}
 	
 	if ($use_ssl) {
@@ -119,13 +99,9 @@ function recaptcha_get_html ($pubkey, $error = null, $use_ssl = false)
         if ($error) {
            $errorpart = "&amp;error=" . $error;
         }
-        return '<script type="text/javascript" src="'. $server . '/challenge?k=' . $pubkey . $errorpart . '"></script>
+        return '<div class="g-recaptcha" data-sitekey="'. $pubkey .'"></div>
 
-	<noscript>
-  		<iframe src="'. $server . '/noscript?k=' . $pubkey . $errorpart . '" height="300" width="500" frameborder="0"></iframe><br/>
-  		<textarea name="recaptcha_challenge_field" rows="3" cols="40"></textarea>
-  		<input type="hidden" name="recaptcha_response_field" value="manual_challenge"/>
-	</noscript>';
+	<script type="text/javascript" src="'. $server .'"></script>';
 }
 
 
@@ -152,7 +128,7 @@ class ReCaptchaResponse {
 function recaptcha_check_answer ($privkey, $remoteip, $challenge, $response, $extra_params = array())
 {
 	if ($privkey == null || $privkey == '') {
-		die ("To use reCAPTCHA you must get an API key from <a href='https://www.google.com/recaptcha/admin/create'>https://www.google.com/recaptcha/admin/create</a>");
+		die ("To use reCAPTCHA you must get an API key from <a href='https://www.google.com/recaptcha/admin'>https://www.google.com/recaptcha/admin</a>");
 	}
 
 	if ($remoteip == null || $remoteip == '') {
@@ -162,31 +138,30 @@ function recaptcha_check_answer ($privkey, $remoteip, $challenge, $response, $ex
 	
 	
         //discard spam submissions
-        if ($challenge == null || strlen($challenge) == 0 || $response == null || strlen($response) == 0) {
+        if ($response == null || strlen($response) == 0) {
                 $recaptcha_response = new ReCaptchaResponse();
                 $recaptcha_response->is_valid = false;
                 $recaptcha_response->error = 'incorrect-captcha-sol';
                 return $recaptcha_response;
         }
 
-        $response = _recaptcha_http_post (RECAPTCHA_VERIFY_SERVER, "/recaptcha/api/verify",
+        $response = _recaptcha_http_get (RECAPTCHA_VERIFY_SERVER,
                                           array (
-                                                 'privatekey' => $privkey,
+                                                 'secret' => $privkey,
                                                  'remoteip' => $remoteip,
-                                                 'challenge' => $challenge,
                                                  'response' => $response
                                                  ) + $extra_params
                                           );
 
-        $answers = explode ("\n", $response [1]);
+        $answers = json_decode($response, true);
         $recaptcha_response = new ReCaptchaResponse();
 
-        if (trim ($answers [0]) == 'true') {
+	if (trim($answers ['success']) == true) {
                 $recaptcha_response->is_valid = true;
         }
         else {
                 $recaptcha_response->is_valid = false;
-                $recaptcha_response->error = $answers [1];
+                $recaptcha_response->error = $answers ['error-codes'];
         }
         return $recaptcha_response;
 
